@@ -16,7 +16,6 @@ function initialState() {
     numCourts: 2,
     history: [],          // {court, winners:[names], losers:[names], source, time, durationMs}
     started: false,
-    randomPartners: true,
     undoStack: [],        // [{data: snapshotState, label}]
     toast: null,          // {msg, ts}
   };
@@ -100,6 +99,29 @@ function snapshotState(state, label) {
   return next;
 }
 
+// Given 4 player IDs, return them reordered as [a0,a1,b0,b1] so that
+// teamA=[a0,a1] and teamB=[b0,b1] minimise previous-partner conflicts.
+function splitFromPartners(picked, players) {
+  const lastPartnerOf = {};
+  for (const p of players) {
+    if (p.lastPartner) lastPartnerOf[p.id] = p.lastPartner;
+  }
+  const [a, b, c, d] = picked;
+  const arrangements = [
+    [a, b, c, d],
+    [a, c, b, d],
+    [a, d, b, c],
+  ];
+  const wasPartner = (x, y) => lastPartnerOf[x] === y || lastPartnerOf[y] === x;
+  const scored = arrangements.map((arr) => ({
+    arr,
+    score: (wasPartner(arr[0], arr[1]) ? 1 : 0) + (wasPartner(arr[2], arr[3]) ? 1 : 0),
+  }));
+  const min = Math.min(...scored.map((s) => s.score));
+  const best = scored.filter((s) => s.score === min);
+  return best[Math.floor(Math.random() * best.length)].arr;
+}
+
 // Try to fill one court. Returns { court, ...sideEffects } or null if no fill possible.
 function tryFillCourt(state, court) {
   if (court.teamA) return null;
@@ -130,7 +152,7 @@ function tryFillCourt(state, court) {
     return null;
   }
 
-  const ordered = state.randomPartners ? shuffle(picked) : picked;
+  const ordered = splitFromPartners(shuffle(picked), state.players);
   const newCourt = {
     ...court,
     teamA: [ordered[0], ordered[1]],
@@ -214,6 +236,7 @@ function reducer(state, action) {
         gamesPlayed: 0,
         consecutiveWins: 0,
         bestStreak: 0,
+        lastPartner: null,
       };
       return {
         ...state,
@@ -243,6 +266,7 @@ function reducer(state, action) {
           gamesPlayed: 0,
           consecutiveWins: 0,
           bestStreak: 0,
+          lastPartner: null,
         });
       }
       if (fresh.length === 0) return state;
@@ -304,9 +328,6 @@ function reducer(state, action) {
       return next;
     }
 
-    case 'SET_RANDOM_PARTNERS':
-      return { ...state, randomPartners: !!action.value };
-
     case 'SET_SESSION_NAME':
       return { ...state, sessionName: action.value };
 
@@ -364,12 +385,22 @@ function reducer(state, action) {
 
       let next = { ...state, undoStack: snapshotState(state, `Court ${court.id} win`) };
 
-      // Update player stats
+      // Update player stats and record last partner
       next.players = next.players.map((p) => {
+        const inTeamA = court.teamA.includes(p.id);
+        const inTeamB = court.teamB.includes(p.id);
+        const partner = inTeamA
+          ? court.teamA.find((id) => id !== p.id)
+          : inTeamB
+          ? court.teamB.find((id) => id !== p.id)
+          : undefined;
+        const partnerUpdate = partner !== undefined ? { lastPartner: partner } : {};
+
         if (winners.includes(p.id)) {
           const cw = (p.consecutiveWins || 0) + 1;
           return {
             ...p,
+            ...partnerUpdate,
             wins: p.wins + 1,
             gamesPlayed: p.gamesPlayed + 1,
             consecutiveWins: cw,
@@ -379,6 +410,7 @@ function reducer(state, action) {
         if (losers.includes(p.id)) {
           return {
             ...p,
+            ...partnerUpdate,
             losses: p.losses + 1,
             gamesPlayed: p.gamesPlayed + 1,
             consecutiveWins: 0,
@@ -435,14 +467,41 @@ function reducer(state, action) {
           const needed = 4 - staying.length;
           const fresh = waiting.slice(0, needed);
           waiting = waiting.slice(needed);
-          const ordered = next.randomPartners ? shuffle(fresh) : fresh;
+          const shuffledFresh = shuffle(fresh);
           let teamA, teamB;
+          const lp = (id) => next.players.find((pl) => pl.id === id)?.lastPartner;
+          const wasPartner = (x, y) => lp(x) === y || lp(y) === x;
           if (staying.length === 2) {
-            teamA = [staying[0], ordered[0]];
-            teamB = [staying[1], ordered[1]];
+            // staying players were partners — split them; pick best fresh assignment
+            const [s0, s1] = staying;
+            const [f0, f1] = shuffledFresh;
+            const c1 = (wasPartner(s0, f0) ? 1 : 0) + (wasPartner(s1, f1) ? 1 : 0);
+            const c2 = (wasPartner(s0, f1) ? 1 : 0) + (wasPartner(s1, f0) ? 1 : 0);
+            if (c2 < c1) {
+              teamA = [s0, f1];
+              teamB = [s1, f0];
+            } else {
+              teamA = [s0, f0];
+              teamB = [s1, f1];
+            }
           } else {
-            teamA = [staying[0], ordered[0]];
-            teamB = [ordered[1], ordered[2]];
+            // staying.length === 1: stayer anchors teamA, pick best partner from 3 fresh
+            const [s0] = staying;
+            const [x, y, z] = shuffledFresh;
+            const options = [
+              { ta: [s0, x], tb: [y, z] },
+              { ta: [s0, y], tb: [x, z] },
+              { ta: [s0, z], tb: [x, y] },
+            ];
+            const scored = options.map((o) => ({
+              o,
+              score: (wasPartner(o.ta[0], o.ta[1]) ? 1 : 0) + (wasPartner(o.tb[0], o.tb[1]) ? 1 : 0),
+            }));
+            const min = Math.min(...scored.map((s) => s.score));
+            const best = scored.filter((s) => s.score === min);
+            const chosen = best[Math.floor(Math.random() * best.length)].o;
+            teamA = chosen.ta;
+            teamB = chosen.tb;
           }
           updatedCourt = {
             ...court,

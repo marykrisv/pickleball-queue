@@ -25,15 +25,6 @@ export default function SettingsCard() {
             onChange={(e) => dispatch({ type: 'SET_NUM_COURTS', value: e.target.value })}
           />
         </div>
-        <div className="row">
-          <label htmlFor="randomPartners">Randomize partners each game</label>
-          <input
-            id="randomPartners"
-            type="checkbox"
-            checked={state.randomPartners}
-            onChange={(e) => dispatch({ type: 'SET_RANDOM_PARTNERS', value: e.target.checked })}
-          />
-        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button
