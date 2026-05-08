@@ -79,8 +79,29 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding: 10px 12px; margin-bottom: 10px;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
+.confirm-bar-end {
+  flex-direction: column; align-items: stretch;
+}
+.confirm-end-top {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.confirm-end-top .confirm-msg { flex: 1; min-width: 200px; }
 .confirm-msg { font-size: 0.85rem; color: #92400e; flex: 1; min-width: 200px; }
 .confirm-actions { display: flex; gap: 6px; }
+.court-result-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 0; border-top: 1px solid #fde68a;
+}
+.court-result-label {
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  color: #92400e; letter-spacing: 0.04em; min-width: 54px;
+}
+.court-result-vs {
+  font-size: 0.75rem; color: #a1a1aa; font-weight: 500;
+}
+.court-result-row .btn-ghost, .court-result-row .btn-success {
+  font-size: 0.82rem; padding: 5px 10px; flex: 1; min-width: 100px;
+}
 
 .add-row { display: flex; gap: 6px; margin-bottom: 8px; }
 .add-row input { flex: 1; }
