@@ -154,7 +154,8 @@ export function exportJson(session) {
 }
 
 // ============================================================
-// PDF (formatted HTML → print dialog → Save as PDF)
+// PDF (inject print-only overlay → window.print() → Save as PDF)
+// Works in Tauri WebView where window.open() is blocked.
 // ============================================================
 export function exportPdf(session) {
   const board = computeLeaderboard(session.players);
@@ -165,15 +166,7 @@ export function exportPdf(session) {
     .map((p, i) => {
       const rate = p.games > 0 ? (p.winRate * 100).toFixed(0) + '%' : '—';
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
-      return `<tr>
-        <td>${medal}</td>
-        <td>${esc(p.name)}</td>
-        <td class="num">${p.wins}</td>
-        <td class="num">${p.losses}</td>
-        <td class="num">${p.games}</td>
-        <td class="num">${rate}</td>
-        <td class="num">${p.bestStreak}</td>
-      </tr>`;
+      return `<tr><td>${medal}</td><td>${esc(p.name)}</td><td class="num">${p.wins}</td><td class="num">${p.losses}</td><td class="num">${p.games}</td><td class="num">${rate}</td><td class="num">${p.bestStreak}</td></tr>`;
     })
     .join('');
 
@@ -182,76 +175,78 @@ export function exportPdf(session) {
     .map((h, i) => {
       const t = new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const dur = h.durationMs != null ? ` <span class="dur">${formatDuration(h.durationMs)}</span>` : '';
-      return `<tr>
-        <td class="num">${i + 1}</td>
-        <td>Court ${h.court}</td>
-        <td class="win">${esc(h.winners.join(' & '))}</td>
-        <td class="loss">${esc(h.losers.join(' & '))}</td>
-        <td>${t}${dur}</td>
-      </tr>`;
+      return `<tr><td class="num">${i + 1}</td><td>Court ${h.court}</td><td class="win">${esc(h.winners.join(' & '))}</td><td class="loss">${esc(h.losers.join(' & '))}</td><td>${t}${dur}</td></tr>`;
     })
     .join('');
 
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>${esc(session.name || 'Pickleball Session')}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18181b; padding: 32px; max-width: 800px; margin: 0 auto; }
-    h1 { font-size: 1.5rem; margin-bottom: 4px; color: #15803d; }
-    .meta { color: #71717a; font-size: 0.85rem; margin-bottom: 24px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-    .stat { background: #f0fdf4; border-radius: 8px; padding: 10px 14px; border: 1px solid #bbf7d0; }
-    .stat-label { font-size: 0.65rem; text-transform: uppercase; color: #71717a; letter-spacing: 0.05em; font-weight: 600; }
-    .stat-value { font-size: 1.4rem; font-weight: 700; color: #15803d; }
-    h2 { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 8px; color: #18181b; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-    th { font-size: 0.68rem; text-transform: uppercase; color: #71717a; letter-spacing: 0.05em; border-bottom: 2px solid #e4e4e7; padding: 5px 8px; text-align: left; }
-    td { padding: 6px 8px; border-bottom: 1px solid #f4f4f5; }
-    .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .win { color: #15803d; font-weight: 500; }
-    .loss { color: #71717a; }
-    .dur { background: #f4f4f5; color: #52525b; padding: 1px 5px; border-radius: 3px; font-size: 0.75em; margin-left: 4px; }
-    tr:nth-child(even) td { background: #fafafa; }
-    @media print { body { padding: 16px; } }
-  </style>
-</head>
-<body>
-  <h1>${esc(session.name || 'Pickleball Session')}</h1>
-  <div class="meta">${session.date}${session.endedAt ? ' · ended ' + new Date(session.endedAt).toLocaleString() : ''}</div>
-  <div class="stats">
-    <div class="stat"><div class="stat-label">Players</div><div class="stat-value">${session.players.length}</div></div>
-    <div class="stat"><div class="stat-label">Played</div><div class="stat-value">${playedCount}</div></div>
-    <div class="stat"><div class="stat-label">Games</div><div class="stat-value">${session.history.length}</div></div>
-    <div class="stat"><div class="stat-label">Play Time</div><div class="stat-value">${formatDuration(totalMs)}</div></div>
-  </div>
-  <h2>Leaderboard</h2>
-  <table>
-    <thead><tr><th>#</th><th>Name</th><th class="num">W</th><th class="num">L</th><th class="num">GP</th><th class="num">Win%</th><th class="num">Streak</th></tr></thead>
-    <tbody>${boardRows}</tbody>
-  </table>
-  ${session.history.length > 0 ? `
-  <h2>Game Log</h2>
-  <table>
-    <thead><tr><th class="num">#</th><th>Court</th><th>Winners</th><th>Losers</th><th>Time</th></tr></thead>
-    <tbody>${gameRows}</tbody>
-  </table>` : ''}
-</body>
-</html>`;
+  // Build a self-contained overlay div injected into the current page.
+  const overlay = document.createElement('div');
+  overlay.id = '__pdf_overlay__';
+  overlay.innerHTML = `
+    <h1>${esc(session.name || 'Pickleball Session')}</h1>
+    <div class="meta">${session.date}${session.endedAt ? ' · ended ' + new Date(session.endedAt).toLocaleString() : ''}</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Players</div><div class="stat-value">${session.players.length}</div></div>
+      <div class="stat"><div class="stat-label">Played</div><div class="stat-value">${playedCount}</div></div>
+      <div class="stat"><div class="stat-label">Games</div><div class="stat-value">${session.history.length}</div></div>
+      <div class="stat"><div class="stat-label">Play Time</div><div class="stat-value">${formatDuration(totalMs)}</div></div>
+    </div>
+    <h2>Leaderboard</h2>
+    <table>
+      <thead><tr><th>#</th><th>Name</th><th class="num">W</th><th class="num">L</th><th class="num">GP</th><th class="num">Win%</th><th class="num">Streak</th></tr></thead>
+      <tbody>${boardRows}</tbody>
+    </table>
+    ${session.history.length > 0 ? `
+    <h2>Game Log</h2>
+    <table>
+      <thead><tr><th class="num">#</th><th>Court</th><th>Winners</th><th>Losers</th><th>Time</th></tr></thead>
+      <tbody>${gameRows}</tbody>
+    </table>` : ''}
+  `;
 
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank');
-  if (win) {
-    win.addEventListener('load', () => {
-      setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 200);
-    });
-  } else {
-    // Fallback: download the HTML file
-    downloadFile(`pickleball_${safeFilenamePart(session)}.html`, html, 'text/html');
-    URL.revokeObjectURL(url);
-  }
+  // Inject print-only styles: hide everything except the overlay during print.
+  const style = document.createElement('style');
+  style.id = '__pdf_style__';
+  style.textContent = `
+    @media print {
+      body > *:not(#__pdf_overlay__) { visibility: hidden !important; }
+      #__pdf_overlay__ {
+        visibility: visible !important;
+        position: fixed; inset: 0; background: white; z-index: 99999;
+        padding: 32px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #18181b; overflow: visible;
+      }
+      #__pdf_overlay__ h1 { font-size: 1.4rem; color: #15803d; margin-bottom: 4px; }
+      #__pdf_overlay__ .meta { color: #71717a; font-size: 0.82rem; margin-bottom: 20px; }
+      #__pdf_overlay__ .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
+      #__pdf_overlay__ .stat { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; }
+      #__pdf_overlay__ .stat-label { font-size: 0.62rem; text-transform: uppercase; color: #71717a; font-weight: 600; }
+      #__pdf_overlay__ .stat-value { font-size: 1.3rem; font-weight: 700; color: #15803d; }
+      #__pdf_overlay__ h2 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 6px; }
+      #__pdf_overlay__ table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      #__pdf_overlay__ th { font-size: 0.62rem; text-transform: uppercase; color: #71717a; border-bottom: 2px solid #e4e4e7; padding: 4px 6px; text-align: left; }
+      #__pdf_overlay__ td { padding: 5px 6px; border-bottom: 1px solid #f4f4f5; }
+      #__pdf_overlay__ .num { text-align: right; }
+      #__pdf_overlay__ .win { color: #15803d; font-weight: 600; }
+      #__pdf_overlay__ .loss { color: #71717a; }
+      #__pdf_overlay__ .dur { background: #f4f4f5; padding: 1px 4px; border-radius: 3px; font-size: 0.72em; margin-left: 3px; }
+    }
+    #__pdf_overlay__ { display: none; }
+  `;
+
+  document.head.appendChild(style);
+  document.body.appendChild(overlay);
+
+  const cleanup = () => {
+    document.getElementById('__pdf_style__')?.remove();
+    document.getElementById('__pdf_overlay__')?.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+  // Safety cleanup after 30s if afterprint never fires (e.g. some iOS WebViews)
+  setTimeout(cleanup, 30000);
 }
 
 function esc(str) {
