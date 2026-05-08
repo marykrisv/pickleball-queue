@@ -70,7 +70,7 @@ export default function PastSessionsModal({ onClose }) {
                         Markdown
                       </button>
                       <button className="btn-ghost" onClick={() => exportJson(sessionObj)}>JSON</button>
-                      <button className="btn-ghost" onClick={() => exportPdf(sessionObj)}>PDF</button>
+                      <button className="btn-ghost" onClick={() => exportPdf(sessionObj, (msg) => dispatch({ type: 'TOAST', msg }))}>PDF</button>
                       {isConfirmingDelete ? (
                         <>
                           <button className="btn-danger" onClick={() => doDelete(s.id)}>Confirm Delete</button>

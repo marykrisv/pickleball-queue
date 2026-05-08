@@ -11,7 +11,7 @@ export default function LeaderboardCard() {
   const onCsv = () => exportCsv(session);
   const onMd = () => exportMarkdown(session, (msg) => dispatch({ type: 'TOAST', msg }));
   const onJson = () => exportJson(session);
-  const onPdf = () => exportPdf(session);
+  const onPdf = () => exportPdf(session, (msg) => dispatch({ type: 'TOAST', msg }));
 
   return (
     <div className={`leaderboard-card ${open ? 'open' : ''}`}>

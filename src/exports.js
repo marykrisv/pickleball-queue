@@ -1,3 +1,5 @@
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { formatDuration, todayISO } from './util.js';
 
 // ============================================================
@@ -154,107 +156,129 @@ export function exportJson(session) {
 }
 
 // ============================================================
-// PDF (inject print-only overlay → window.print() → Save as PDF)
-// Works in Tauri WebView where window.open() is blocked.
+// PDF — jsPDF generates a real .pdf file and downloads it directly.
+// Works in browser and Tauri WebView (no print dialog needed).
 // ============================================================
-export function exportPdf(session) {
-  const board = computeLeaderboard(session.players);
-  const totalMs = session.history.reduce((s, h) => s + (h.durationMs || 0), 0);
-  const playedCount = session.players.filter((p) => p.gamesPlayed > 0).length;
+export function exportPdf(session, onResult) {
+  try {
+    const board = computeLeaderboard(session.players);
+    const totalMs = session.history.reduce((s, h) => s + (h.durationMs || 0), 0);
+    const playedCount = session.players.filter((p) => p.gamesPlayed > 0).length;
 
-  const boardRows = board
-    .map((p, i) => {
-      const rate = p.games > 0 ? (p.winRate * 100).toFixed(0) + '%' : '—';
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
-      return `<tr><td>${medal}</td><td>${esc(p.name)}</td><td class="num">${p.wins}</td><td class="num">${p.losses}</td><td class="num">${p.games}</td><td class="num">${rate}</td><td class="num">${p.bestStreak}</td></tr>`;
-    })
-    .join('');
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+    const margin = 40;
+    const pageW = doc.internal.pageSize.getWidth();
+    let y = margin;
 
-  const gameRows = [...session.history]
-    .reverse()
-    .map((h, i) => {
-      const t = new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const dur = h.durationMs != null ? ` <span class="dur">${formatDuration(h.durationMs)}</span>` : '';
-      return `<tr><td class="num">${i + 1}</td><td>Court ${h.court}</td><td class="win">${esc(h.winners.join(' & '))}</td><td class="loss">${esc(h.losers.join(' & '))}</td><td>${t}${dur}</td></tr>`;
-    })
-    .join('');
+    const green = [21, 128, 61];
+    const gray  = [113, 113, 122];
+    const dark  = [24, 24, 27];
 
-  // Build a self-contained overlay div injected into the current page.
-  const overlay = document.createElement('div');
-  overlay.id = '__pdf_overlay__';
-  overlay.innerHTML = `
-    <h1>${esc(session.name || 'Pickleball Session')}</h1>
-    <div class="meta">${session.date}${session.endedAt ? ' · ended ' + new Date(session.endedAt).toLocaleString() : ''}</div>
-    <div class="stats">
-      <div class="stat"><div class="stat-label">Players</div><div class="stat-value">${session.players.length}</div></div>
-      <div class="stat"><div class="stat-label">Played</div><div class="stat-value">${playedCount}</div></div>
-      <div class="stat"><div class="stat-label">Games</div><div class="stat-value">${session.history.length}</div></div>
-      <div class="stat"><div class="stat-label">Play Time</div><div class="stat-value">${formatDuration(totalMs)}</div></div>
-    </div>
-    <h2>Leaderboard</h2>
-    <table>
-      <thead><tr><th>#</th><th>Name</th><th class="num">W</th><th class="num">L</th><th class="num">GP</th><th class="num">Win%</th><th class="num">Streak</th></tr></thead>
-      <tbody>${boardRows}</tbody>
-    </table>
-    ${session.history.length > 0 ? `
-    <h2>Game Log</h2>
-    <table>
-      <thead><tr><th class="num">#</th><th>Court</th><th>Winners</th><th>Losers</th><th>Time</th></tr></thead>
-      <tbody>${gameRows}</tbody>
-    </table>` : ''}
-  `;
+    // Title
+    doc.setFontSize(18);
+    doc.setTextColor(green[0], green[1], green[2]);
+    doc.setFont('helvetica', 'bold');
+    doc.text(session.name || 'Pickleball Session', margin, y);
+    y += 20;
 
-  // Inject print-only styles: hide everything except the overlay during print.
-  const style = document.createElement('style');
-  style.id = '__pdf_style__';
-  style.textContent = `
-    @media print {
-      body > *:not(#__pdf_overlay__) { visibility: hidden !important; }
-      #__pdf_overlay__ {
-        visibility: visible !important;
-        position: fixed; inset: 0; background: white; z-index: 99999;
-        padding: 32px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #18181b; overflow: visible;
-      }
-      #__pdf_overlay__ h1 { font-size: 1.4rem; color: #15803d; margin-bottom: 4px; }
-      #__pdf_overlay__ .meta { color: #71717a; font-size: 0.82rem; margin-bottom: 20px; }
-      #__pdf_overlay__ .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
-      #__pdf_overlay__ .stat { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; }
-      #__pdf_overlay__ .stat-label { font-size: 0.62rem; text-transform: uppercase; color: #71717a; font-weight: 600; }
-      #__pdf_overlay__ .stat-value { font-size: 1.3rem; font-weight: 700; color: #15803d; }
-      #__pdf_overlay__ h2 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 6px; }
-      #__pdf_overlay__ table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-      #__pdf_overlay__ th { font-size: 0.62rem; text-transform: uppercase; color: #71717a; border-bottom: 2px solid #e4e4e7; padding: 4px 6px; text-align: left; }
-      #__pdf_overlay__ td { padding: 5px 6px; border-bottom: 1px solid #f4f4f5; }
-      #__pdf_overlay__ .num { text-align: right; }
-      #__pdf_overlay__ .win { color: #15803d; font-weight: 600; }
-      #__pdf_overlay__ .loss { color: #71717a; }
-      #__pdf_overlay__ .dur { background: #f4f4f5; padding: 1px 4px; border-radius: 3px; font-size: 0.72em; margin-left: 3px; }
+    // Subtitle
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(gray[0], gray[1], gray[2]);
+    const subtitle = session.date + (session.endedAt ? '  ended ' + new Date(session.endedAt).toLocaleDateString() : '');
+    doc.text(subtitle, margin, y);
+    y += 22;
+
+    // Stat boxes
+    const statW = (pageW - margin * 2 - 9) / 4;
+    const stats = [
+      { label: 'Players',   value: String(session.players.length) },
+      { label: 'Played',    value: String(playedCount) },
+      { label: 'Games',     value: String(session.history.length) },
+      { label: 'Play Time', value: formatDuration(totalMs) },
+    ];
+    stats.forEach((s, i) => {
+      const x = margin + i * (statW + 3);
+      doc.setFillColor(240, 253, 244);
+      doc.setDrawColor(187, 247, 208);
+      doc.roundedRect(x, y, statW, 36, 4, 4, 'FD');
+      doc.setFontSize(7);
+      doc.setTextColor(gray[0], gray[1], gray[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.text(s.label.toUpperCase(), x + 8, y + 12);
+      doc.setFontSize(14);
+      doc.setTextColor(green[0], green[1], green[2]);
+      doc.text(s.value, x + 8, y + 28);
+    });
+    y += 50;
+
+    // Leaderboard table
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(dark[0], dark[1], dark[2]);
+    doc.text('LEADERBOARD', margin, y);
+    y += 6;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['#', 'Name', 'W', 'L', 'GP', 'Win%', 'Streak']],
+      body: board.map((p, i) => {
+        const rate = p.games > 0 ? (p.winRate * 100).toFixed(0) + '%' : '-';
+        return [String(i + 1), p.name, p.wins, p.losses, p.games, rate, p.bestStreak];
+      }),
+      styles: { fontSize: 9, cellPadding: 4 },
+      headStyles: { fillColor: [240, 253, 244], textColor: gray, fontStyle: 'bold', fontSize: 7 },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        2: { halign: 'right' }, 3: { halign: 'right' },
+        4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
+      },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+    });
+
+    // Game log table
+    if (session.history.length > 0) {
+      y = doc.lastAutoTable.finalY + 16;
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(dark[0], dark[1], dark[2]);
+      doc.text('GAME LOG', margin, y);
+      y += 6;
+
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [['#', 'Court', 'Winners', 'Losers', 'Time', 'Duration']],
+        body: [...session.history].reverse().map((h, i) => {
+          const t = new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dur = h.durationMs != null ? formatDuration(h.durationMs) : '-';
+          return [i + 1, 'Court ' + h.court, h.winners.join(' & '), h.losers.join(' & '), t, dur];
+        }),
+        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        headStyles: { fillColor: [240, 253, 244], textColor: gray, fontStyle: 'bold', fontSize: 7 },
+        columnStyles: {
+          0: { cellWidth: 24, halign: 'right' },
+          1: { cellWidth: 46 },
+          4: { cellWidth: 42 },
+          5: { cellWidth: 52, halign: 'right' },
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.column.index === 2) {
+            data.cell.styles.textColor = green;
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+      });
     }
-    #__pdf_overlay__ { display: none; }
-  `;
 
-  document.head.appendChild(style);
-  document.body.appendChild(overlay);
-
-  const cleanup = () => {
-    document.getElementById('__pdf_style__')?.remove();
-    document.getElementById('__pdf_overlay__')?.remove();
-    window.removeEventListener('afterprint', cleanup);
-  };
-
-  window.addEventListener('afterprint', cleanup);
-  window.print();
-  // Safety cleanup after 30s if afterprint never fires (e.g. some iOS WebViews)
-  setTimeout(cleanup, 30000);
-}
-
-function esc(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    doc.save(`pickleball_${safeFilenamePart(session)}.pdf`);
+    onResult?.('PDF downloaded');
+  } catch (err) {
+    console.error('exportPdf error:', err);
+    onResult?.('PDF export failed: ' + err.message);
+  }
 }
 
 // ============================================================
