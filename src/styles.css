@@ -177,11 +177,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding: 8px; text-align: center;
 }
 .team-label {
-  font-size: 0.68rem; text-transform: uppercase; color: #71717a;
+  font-size: 1.5rem; text-transform: uppercase; color: #71717a;
   margin-bottom: 3px; letter-spacing: 0.05em; font-weight: 600;
 }
 .team-players {
-  font-weight: 600; line-height: 1.45; color: #15803d; font-size: 0.9rem;
+  font-weight: 600; line-height: 1.45; color: #15803d; font-size: 1.5rem;
 }
 .team-divider {
   font-size: 0.72rem; font-weight: 700; color: #94a3b8;
