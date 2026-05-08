@@ -5,9 +5,8 @@ import { formatDuration, todayISO } from '../util.js';
 export default function SessionCard({ onOpenPast }) {
   const { state, dispatch } = useStore();
   const [archivedCount, setArchivedCount] = React.useState(() => loadArchivedSessions().length);
+  const [confirming, setConfirming] = React.useState(null); // null | 'new' | 'end'
 
-  // Refresh archived count whenever this storage key changes (other tabs)
-  // or after archiving from this tab. We poll via window event.
   React.useEffect(() => {
     const onStorage = (e) => {
       if (e.key === SESSIONS_KEY || e.key === null) {
@@ -26,12 +25,11 @@ export default function SessionCard({ onOpenPast }) {
       dispatch({ type: 'NEW_SESSION' });
       return;
     }
-    if (
-      !window.confirm(
-        'Start a new session? This will clear current players and games. (You can export first if you want to save them.)'
-      )
-    )
-      return;
+    setConfirming('new');
+  };
+
+  const doNew = () => {
+    setConfirming(null);
     dispatch({ type: 'NEW_SESSION' });
     dispatch({ type: 'TOAST', msg: 'New session started' });
   };
@@ -41,12 +39,11 @@ export default function SessionCard({ onOpenPast }) {
       dispatch({ type: 'TOAST', msg: 'Nothing to save — session is empty' });
       return;
     }
-    const activeGame = state.courts.some((c) => c.teamA);
-    const warning = activeGame
-      ? `End "${state.sessionName}" now? There's still a game in progress — its result won't be recorded. Past sessions can be viewed any time.`
-      : `End "${state.sessionName}" and save it to Past Sessions?`;
-    if (!window.confirm(warning)) return;
+    setConfirming('end');
+  };
 
+  const doEnd = () => {
+    setConfirming(null);
     const archived = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
       name: state.sessionName || 'Untitled Session',
@@ -67,6 +64,8 @@ export default function SessionCard({ onOpenPast }) {
     setArchivedCount(sessions.length);
     dispatch({ type: 'END_SESSION_LOCAL', msg: `"${archived.name}" saved` });
   };
+
+  const activeGame = state.courts.some((c) => c.teamA);
 
   return (
     <div className="card session-card">
@@ -96,20 +95,45 @@ export default function SessionCard({ onOpenPast }) {
           {archivedCount > 0 && <span className="pill">{archivedCount}</span>}
         </button>
       </div>
+
+      {confirming === 'new' && (
+        <div className="confirm-bar">
+          <span className="confirm-msg">Start a new session? Current players and games will be cleared.</span>
+          <div className="confirm-actions">
+            <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
+            <button className="btn-primary" onClick={doNew}>Yes, start new</button>
+          </div>
+        </div>
+      )}
+
+      {confirming === 'end' && (
+        <div className="confirm-bar">
+          <span className="confirm-msg">
+            {activeGame
+              ? `End "${state.sessionName}"? The current game in progress won't be recorded.`
+              : `Save "${state.sessionName}" to Past Sessions?`}
+          </span>
+          <div className="confirm-actions">
+            <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
+            <button className="btn-success" onClick={doEnd}>Yes, end session</button>
+          </div>
+        </div>
+      )}
+
       <div className="session-stats">
-        <div className="stat-tile">
+        <div className="stat-tile stat-players">
           <div className="stat-label">Players</div>
           <div className="stat-value">{state.players.length}</div>
         </div>
-        <div className="stat-tile">
+        <div className="stat-tile stat-played">
           <div className="stat-label">Played</div>
           <div className="stat-value">{playedCount}</div>
         </div>
-        <div className="stat-tile">
+        <div className="stat-tile stat-games">
           <div className="stat-label">Games</div>
           <div className="stat-value">{state.history.length}</div>
         </div>
-        <div className="stat-tile">
+        <div className="stat-tile stat-time">
           <div className="stat-label">Total Play Time</div>
           <div className="stat-value">{formatDuration(totalMs)}</div>
         </div>

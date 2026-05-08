@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useStore, loadArchivedSessions, saveArchivedSessions } from '../state.jsx';
-import { computeLeaderboard, exportCsv, exportMarkdown, exportJson, archivedAsSession } from '../exports.js';
+import { computeLeaderboard, exportCsv, exportMarkdown, exportJson, exportPdf, archivedAsSession } from '../exports.js';
 import { formatDuration } from '../util.js';
 
 export default function PastSessionsModal({ onClose }) {
   const { dispatch } = useStore();
   const [sessions, setSessions] = useState(() => loadArchivedSessions());
   const [expandedId, setExpandedId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -14,12 +15,14 @@ export default function PastSessionsModal({ onClose }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const onDelete = (id) => {
-    if (!window.confirm('Delete this archived session permanently?')) return;
+  const onDelete = (id) => setConfirmDeleteId(id);
+
+  const doDelete = (id) => {
     const next = sessions.filter((s) => s.id !== id);
     saveArchivedSessions(next);
     setSessions(next);
     if (expandedId === id) setExpandedId(null);
+    setConfirmDeleteId(null);
   };
 
   return (
@@ -41,6 +44,7 @@ export default function PastSessionsModal({ onClose }) {
               const ended = s.endedAt ? new Date(s.endedAt).toLocaleString() : '';
               const sessionObj = archivedAsSession(s);
               const isOpen = expandedId === s.id;
+              const isConfirmingDelete = confirmDeleteId === s.id;
               return (
                 <div key={s.id} className="archived-session">
                   <div className="archived-session-header">
@@ -66,7 +70,15 @@ export default function PastSessionsModal({ onClose }) {
                         Markdown
                       </button>
                       <button className="btn-ghost" onClick={() => exportJson(sessionObj)}>JSON</button>
-                      <button className="btn-danger" onClick={() => onDelete(s.id)}>Delete</button>
+                      <button className="btn-ghost" onClick={() => exportPdf(sessionObj)}>PDF</button>
+                      {isConfirmingDelete ? (
+                        <>
+                          <button className="btn-danger" onClick={() => doDelete(s.id)}>Confirm Delete</button>
+                          <button className="btn-ghost" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <button className="btn-danger" onClick={() => onDelete(s.id)}>Delete</button>
+                      )}
                     </div>
                   </div>
                   {isOpen && <ArchivedDetails session={s} />}

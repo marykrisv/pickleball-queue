@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { useStore } from '../state.jsx';
-import { computeLeaderboard, exportCsv, exportMarkdown, exportJson, liveStateAsSession } from '../exports.js';
+import { computeLeaderboard, exportCsv, exportMarkdown, exportJson, exportPdf, liveStateAsSession } from '../exports.js';
 
 export default function LeaderboardCard() {
   const { state, dispatch } = useStore();
   const [open, setOpen] = useState(false);
   const board = computeLeaderboard(state.players);
 
-  const onCsv = () => exportCsv(liveStateAsSession(state));
-  const onMd = () => exportMarkdown(liveStateAsSession(state), (msg) => dispatch({ type: 'TOAST', msg }));
-  const onJson = () => exportJson(liveStateAsSession(state));
-  const onPrint = () => window.print();
+  const session = liveStateAsSession(state);
+  const onCsv = () => exportCsv(session);
+  const onMd = () => exportMarkdown(session, (msg) => dispatch({ type: 'TOAST', msg }));
+  const onJson = () => exportJson(session);
+  const onPdf = () => exportPdf(session);
 
   return (
     <div className={`leaderboard-card ${open ? 'open' : ''}`}>
@@ -61,7 +62,7 @@ export default function LeaderboardCard() {
             <button className="btn-ghost" onClick={onCsv}>CSV</button>
             <button className="btn-ghost" onClick={onMd}>Copy Markdown</button>
             <button className="btn-ghost" onClick={onJson}>JSON</button>
-            <button className="btn-ghost" onClick={onPrint}>Print</button>
+            <button className="btn-ghost" onClick={onPdf}>Export PDF</button>
           </div>
         </div>
       )}
