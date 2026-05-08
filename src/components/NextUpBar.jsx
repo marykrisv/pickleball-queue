@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStore } from '../state.jsx';
+import { useStore, getNextBracket } from '../state.jsx';
 import { isSingleLineMode } from '../util.js';
 
 function getNext(state) {
@@ -10,11 +10,15 @@ function getNext(state) {
     return { name: 'Waiting for more...', detail: `${state.waiting.length} in line — need 4` };
   }
   if (state.waiting.length >= 4) return { name: 'Initial', detail: `${state.waiting.length} players waiting` };
-  if (state.winnersQueue.length >= 4) return { name: 'Winners', detail: `${state.winnersQueue.length} winners ready` };
-  if (state.losersQueue.length >= 4) return { name: 'Losers', detail: `${state.losersQueue.length} losers ready` };
+  if (state.winnersQueue.length >= 4) return { name: 'Winners bracket', detail: `${state.winnersQueue.length} ready` };
+  if (state.losersQueue.length >= 4) return { name: 'Losers bracket', detail: `${state.losersQueue.length} ready` };
   const w = state.winnersQueue.length, l = state.losersQueue.length, wait = state.waiting.length;
   if (w + l + wait === 0) return { name: 'No one queued', detail: '' };
-  return { name: 'Waiting for more...', detail: `Need 4 in one bracket. Have W:${w}, L:${l}, Waiting:${wait}` };
+  // Waiting stragglers will be distributed to the next bracket automatically.
+  const nextBracket = getNextBracket(w, l);
+  const total = nextBracket === 'winners' ? w + wait : l + wait;
+  const label = nextBracket === 'winners' ? 'Winners bracket' : 'Losers bracket';
+  return { name: label, detail: `${total} queued — need 4` };
 }
 
 export default function NextUpBar() {

@@ -84,6 +84,26 @@ export function saveArchivedSessions(sessions) {
 // ============================================================
 // Helpers used by the reducer
 // ============================================================
+
+// Returns which bracket queue waiting players should join.
+// Picks whichever queue has more players (closer to filling); winners wins tie.
+export function getNextBracket(winnersLen, losersLen) {
+  return losersLen > winnersLen ? 'losers' : 'winners';
+}
+
+// In bracket mode, if waiting has < 4 players they can't fill a court alone.
+// Move them into the next bracket queue so they can actually play.
+function distributeWaitingToBrackets(state) {
+  if (!state.started) return state;
+  if (isSingleLineMode(state.players, state.numCourts)) return state;
+  if (state.waiting.length === 0 || state.waiting.length >= 4) return state;
+
+  const target = getNextBracket(state.winnersQueue.length, state.losersQueue.length);
+  if (target === 'losers') {
+    return { ...state, losersQueue: [...state.losersQueue, ...state.waiting], waiting: [] };
+  }
+  return { ...state, winnersQueue: [...state.winnersQueue, ...state.waiting], waiting: [] };
+}
 function setupCourts(courts, desired) {
   const existing = courts.slice(0, desired);
   while (existing.length < desired) {
@@ -165,6 +185,8 @@ function tryFillCourt(state, court) {
 
 function autoFillCourts(state) {
   if (!state.started) return state;
+  // Move straggler waiting players (< 4) into the next bracket queue.
+  state = distributeWaitingToBrackets(state);
   let courts = [...state.courts];
   let waiting = state.waiting;
   let winnersQueue = state.winnersQueue;
@@ -182,6 +204,16 @@ function autoFillCourts(state) {
         waiting = result.waiting;
         winnersQueue = result.winnersQueue;
         losersQueue = result.losersQueue;
+        filledAny = true;
+      }
+    }
+    // After filling, redistribute any new stragglers and try again.
+    if (!filledAny && waiting.length > 0 && waiting.length < 4) {
+      const tmp = distributeWaitingToBrackets({ ...state, waiting, winnersQueue, losersQueue });
+      if (tmp.waiting.length < waiting.length) {
+        waiting = tmp.waiting;
+        winnersQueue = tmp.winnersQueue;
+        losersQueue = tmp.losersQueue;
         filledAny = true;
       }
     }
@@ -238,12 +270,13 @@ function reducer(state, action) {
         bestStreak: 0,
         lastPartner: null,
       };
-      return {
+      const next = {
         ...state,
         undoStack: snapshotState(state, `add ${name}`),
         players: [...state.players, newPlayer],
         waiting: [...state.waiting, newPlayer.id],
       };
+      return autoFillCourts(next);
     }
 
     case 'BULK_ADD_PLAYERS': {
@@ -270,13 +303,14 @@ function reducer(state, action) {
         });
       }
       if (fresh.length === 0) return state;
-      return {
+      const bulkNext = {
         ...state,
         undoStack: snapshotState(state, `bulk add ${fresh.length} players`),
         players: [...state.players, ...fresh],
         waiting: [...state.waiting, ...fresh.map((p) => p.id)],
         toast: { msg: `Added ${fresh.length} player${fresh.length === 1 ? '' : 's'}`, ts: Date.now() },
       };
+      return autoFillCourts(bulkNext);
     }
 
     case 'REMOVE_PLAYER': {

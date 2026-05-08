@@ -205,9 +205,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .queue-card.winners { border-top: 3px solid #f59e0b; background: #fffbeb; }
 .queue-card.losers  { border-top: 3px solid #f87171; background: #fef2f2; }
 .queue-card.initial { border-top: 3px solid #3b82f6; background: #eff6ff; }
+.queue-card.queue-next.winners { border-top: 4px solid #d97706; box-shadow: 0 0 0 2px #fde68a; }
+.queue-card.queue-next.losers  { border-top: 4px solid #dc2626; box-shadow: 0 0 0 2px #fecaca; }
+.queue-next-badge {
+  margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 0.65rem;
+  font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  background: #22c55e; color: white;
+}
 .queue-card h3 {
   font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; display: flex;
-  justify-content: space-between; text-transform: uppercase; color: #18181b; letter-spacing: 0.04em;
+  align-items: center; gap: 6px; text-transform: uppercase; color: #18181b; letter-spacing: 0.04em;
 }
 .queue-card .count {
   background: #e2e8f0; color: #475569; padding: 0 7px; border-radius: 999px;

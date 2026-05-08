@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStore } from '../state.jsx';
+import { useStore, getNextBracket } from '../state.jsx';
 import { isSingleLineMode } from '../util.js';
 
 function QueueList({ ids, players }) {
@@ -18,6 +18,13 @@ export default function QueuesCard() {
   const { state } = useStore();
   const single = isSingleLineMode(state.players, state.numCourts);
 
+  // Determine which bracket is up next to fill a court.
+  const nextBracket = !single && state.started
+    ? (state.waiting.length >= 4
+        ? null // initial pool still filling courts
+        : getNextBracket(state.winnersQueue.length, state.losersQueue.length))
+    : null;
+
   return (
     <div className="card">
       <h2>
@@ -26,12 +33,18 @@ export default function QueuesCard() {
       <div className={`queues-grid ${single ? 'single' : ''}`}>
         {!single && (
           <>
-            <div className="queue-card winners">
-              <h3>Winners <span className="count">{state.winnersQueue.length}</span></h3>
+            <div className={`queue-card winners${nextBracket === 'winners' ? ' queue-next' : ''}`}>
+              <h3>
+                Winners <span className="count">{state.winnersQueue.length}</span>
+                {nextBracket === 'winners' && <span className="queue-next-badge">NEXT ▶</span>}
+              </h3>
               <QueueList ids={state.winnersQueue} players={state.players} />
             </div>
-            <div className="queue-card losers">
-              <h3>Losers <span className="count">{state.losersQueue.length}</span></h3>
+            <div className={`queue-card losers${nextBracket === 'losers' ? ' queue-next' : ''}`}>
+              <h3>
+                Losers <span className="count">{state.losersQueue.length}</span>
+                {nextBracket === 'losers' && <span className="queue-next-badge">NEXT ▶</span>}
+              </h3>
               <QueueList ids={state.losersQueue} players={state.players} />
             </div>
           </>
