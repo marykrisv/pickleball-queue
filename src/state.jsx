@@ -85,9 +85,11 @@ export function saveArchivedSessions(sessions) {
 // Helpers used by the reducer
 // ============================================================
 
-// Returns which bracket queue waiting players should join.
-// Picks whichever queue has more players (closer to filling); winners wins tie.
+// Returns which bracket will fill the next court.
+// Winners is always checked first in tryFillCourt, so if winners has ≥4 it's always next.
+// For stragglers (both < 4), pick whichever has more players; winners wins tie.
 export function getNextBracket(winnersLen, losersLen) {
+  if (winnersLen >= 4) return 'winners';
   return losersLen > winnersLen ? 'losers' : 'winners';
 }
 
@@ -560,6 +562,38 @@ function reducer(state, action) {
       }
 
       return autoFillCourts(next);
+    }
+
+    case 'EDIT_COURT_PLAYERS': {
+      const { courtIdx, teamA, teamB } = action;
+      const court = state.courts[courtIdx];
+      if (!court || !court.teamA) return state;
+
+      const oldPlayers = [...court.teamA, ...court.teamB];
+      const newPlayers = [...teamA, ...teamB];
+      const removed = oldPlayers.filter((id) => !newPlayers.includes(id));
+      const added = newPlayers.filter((id) => !oldPlayers.includes(id));
+
+      // Remove added players from whichever queue they're in
+      let waiting = state.waiting.filter((id) => !added.includes(id));
+      let winnersQueue = state.winnersQueue.filter((id) => !added.includes(id));
+      let losersQueue = state.losersQueue.filter((id) => !added.includes(id));
+
+      // Return removed players to the front of waiting
+      waiting = [...removed, ...waiting];
+
+      const courts = state.courts.map((c, i) =>
+        i === courtIdx ? { ...c, teamA, teamB } : c
+      );
+
+      return {
+        ...state,
+        undoStack: snapshotState(state, `Edit Court ${court.id} players`),
+        courts,
+        waiting,
+        winnersQueue,
+        losersQueue,
+      };
     }
 
     case 'UNDO': {
