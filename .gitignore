@@ -4,4 +4,4 @@ dist
 *.local
 .vite
 src-tauri
-.ideaf
+.idea
