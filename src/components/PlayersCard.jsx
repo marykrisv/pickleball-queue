@@ -71,19 +71,41 @@ export default function PlayersCard() {
         <div className="player-list-empty">No players added yet</div>
       ) : (
         <ul className="player-list">
-          {state.players.map((p) => (
-            <li key={p.id} className="player-row">
-              <span>
-                <span className="player-name">{p.name}</span>
-                <span className="player-stats">
-                  {p.wins}W-{p.losses}L
+          {state.players.map((p) => {
+            const onCourt = state.courts.some(
+              (c) => c.teamA && (c.teamA.includes(p.id) || c.teamB.includes(p.id))
+            );
+            return (
+              <li key={p.id} className={`player-row${p.resting ? ' player-resting' : ''}`}>
+                <span className="player-info">
+                  <span className="player-name">{p.name}</span>
+                  <span className="player-stats">
+                    {p.wins}W-{p.losses}L
+                  </span>
+                  {p.resting && <span className="resting-badge">💤 Resting</span>}
                 </span>
-              </span>
-              <button className="remove" onClick={() => dispatch({ type: 'REMOVE_PLAYER', id: p.id })}>
-                ✕
-              </button>
-            </li>
-          ))}
+                <span className="player-actions">
+                  <button
+                    className="rest-toggle"
+                    onClick={() => dispatch({ type: 'TOGGLE_PLAYER_REST', id: p.id })}
+                    disabled={!p.resting && onCourt}
+                    title={
+                      p.resting
+                        ? 'Resume — add back to queue'
+                        : onCourt
+                        ? "Can't rest mid-game — finish the court first"
+                        : 'Rest — remove from queue'
+                    }
+                  >
+                    {p.resting ? 'Resume' : 'Rest'}
+                  </button>
+                  <button className="remove" onClick={() => dispatch({ type: 'REMOVE_PLAYER', id: p.id })} title="Remove player">
+                    ✕
+                  </button>
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

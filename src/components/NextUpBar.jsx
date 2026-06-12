@@ -10,14 +10,14 @@ function getNext(state) {
     return { name: 'Waiting for more...', detail: `${state.waiting.length} in line — need 4` };
   }
   if (state.waiting.length >= 4) return { name: 'Initial', detail: `${state.waiting.length} players waiting` };
-  if (state.winnersQueue.length >= 4) return { name: 'Winners bracket', detail: `${state.winnersQueue.length} ready` };
-  if (state.losersQueue.length >= 4) return { name: 'Losers bracket', detail: `${state.losersQueue.length} ready` };
   const w = state.winnersQueue.length, l = state.losersQueue.length, wait = state.waiting.length;
   if (w + l + wait === 0) return { name: 'No one queued', detail: '' };
-  // Waiting stragglers will be distributed to the next bracket automatically.
-  const nextBracket = getNextBracket(w, l);
-  const total = nextBracket === 'winners' ? w + wait : l + wait;
+  // Use the alternating preference from state — winners <-> losers <-> winners.
+  const nextBracket = getNextBracket(w, l, state.nextBracket);
+  const intendedQ = nextBracket === 'winners' ? w : l;
   const label = nextBracket === 'winners' ? 'Winners bracket' : 'Losers bracket';
+  if (intendedQ >= 4) return { name: label, detail: `${intendedQ} ready` };
+  const total = intendedQ + wait;
   return { name: label, detail: `${total} queued — need 4` };
 }
 

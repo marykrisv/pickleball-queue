@@ -8,7 +8,7 @@ function initialState() {
   return {
     sessionName: 'Pickleball Session',
     sessionDate: todayISO(),
-    players: [],          // {id, name, wins, losses, gamesPlayed, consecutiveWins, bestStreak}
+    players: [],          // {id, name, wins, losses, gamesPlayed, consecutiveWins, bestStreak, resting}
     waiting: [],          // ids that haven't played yet (or all in single-line mode)
     winnersQueue: [],
     losersQueue: [],
@@ -16,6 +16,7 @@ function initialState() {
     numCourts: 2,
     history: [],          // {court, winners:[names], losers:[names], source, time, durationMs}
     started: false,
+    nextBracket: 'winners', // alternates 'winners' -> 'losers' -> 'winners' as bracket courts fill
     undoStack: [],        // [{data: snapshotState, label}]
     toast: null,          // {msg, ts}
   };
@@ -45,7 +46,11 @@ function loadLiveState() {
       parsed.players.forEach((p) => {
         if (p.consecutiveWins == null) p.consecutiveWins = 0;
         if (p.bestStreak == null) p.bestStreak = 0;
+        if (p.resting == null) p.resting = false;
       });
+    }
+    if (parsed.nextBracket !== 'winners' && parsed.nextBracket !== 'losers') {
+      parsed.nextBracket = 'winners';
     }
     // Drop undoStack and toast on reload — both are session-local
     delete parsed.undoStack;
@@ -85,22 +90,29 @@ export function saveArchivedSessions(sessions) {
 // Helpers used by the reducer
 // ============================================================
 
-// Returns which bracket will fill the next court.
-// Winners is always checked first in tryFillCourt, so if winners has ≥4 it's always next.
-// For stragglers (both < 4), pick whichever has more players; winners wins tie.
-export function getNextBracket(winnersLen, losersLen) {
-  if (winnersLen >= 4) return 'winners';
-  return losersLen > winnersLen ? 'losers' : 'winners';
+// Returns which bracket will fill the next court, given the current `nextBracket`
+// preference. Alternates 'winners' -> 'losers' -> 'winners' as courts fill.
+// Falls back to the other bracket if the intended one isn't ready (< 4 players).
+export function getNextBracket(winnersLen, losersLen, nextBracket = 'winners') {
+  const intended = nextBracket === 'losers' ? 'losers' : 'winners';
+  const other = intended === 'winners' ? 'losers' : 'winners';
+  const intendedLen = intended === 'winners' ? winnersLen : losersLen;
+  const otherLen = other === 'winners' ? winnersLen : losersLen;
+  if (intendedLen >= 4) return intended;
+  if (otherLen >= 4) return other;
+  // Neither has 4 yet — keep showing the intended bracket so the UI reflects the
+  // upcoming alternation rather than swapping based on transient counts.
+  return intended;
 }
 
 // In bracket mode, if waiting has < 4 players they can't fill a court alone.
-// Move them into the next bracket queue so they can actually play.
+// Move them into the bracket queue that's next up to play.
 function distributeWaitingToBrackets(state) {
   if (!state.started) return state;
   if (isSingleLineMode(state.players, state.numCourts)) return state;
   if (state.waiting.length === 0 || state.waiting.length >= 4) return state;
 
-  const target = getNextBracket(state.winnersQueue.length, state.losersQueue.length);
+  const target = getNextBracket(state.winnersQueue.length, state.losersQueue.length, state.nextBracket);
   if (target === 'losers') {
     return { ...state, losersQueue: [...state.losersQueue, ...state.waiting], waiting: [] };
   }
@@ -152,6 +164,7 @@ function tryFillCourt(state, court) {
   let waiting = state.waiting;
   let winnersQueue = state.winnersQueue;
   let losersQueue = state.losersQueue;
+  let nextBracket = state.nextBracket || 'winners';
 
   if (single) {
     if (waiting.length < 4) return null;
@@ -162,16 +175,30 @@ function tryFillCourt(state, court) {
     source = 'initial';
     picked = waiting.slice(0, 4);
     waiting = waiting.slice(4);
-  } else if (winnersQueue.length >= 4) {
-    source = 'winners';
-    picked = winnersQueue.slice(0, 4);
-    winnersQueue = winnersQueue.slice(4);
-  } else if (losersQueue.length >= 4) {
-    source = 'losers';
-    picked = losersQueue.slice(0, 4);
-    losersQueue = losersQueue.slice(4);
   } else {
-    return null;
+    // Bracket mode: alternate winners <-> losers via `nextBracket`.
+    const intended = nextBracket === 'losers' ? 'losers' : 'winners';
+    const other = intended === 'winners' ? 'losers' : 'winners';
+    const intendedQ = intended === 'winners' ? winnersQueue : losersQueue;
+    const otherQ = other === 'winners' ? winnersQueue : losersQueue;
+
+    if (intendedQ.length >= 4) {
+      source = intended;
+      picked = intendedQ.slice(0, 4);
+      if (intended === 'winners') winnersQueue = winnersQueue.slice(4);
+      else losersQueue = losersQueue.slice(4);
+      // Successfully filled from intended — flip the indicator.
+      nextBracket = other;
+    } else if (otherQ.length >= 4) {
+      // Intended bracket isn't ready; fall back to the other so the court doesn't sit idle.
+      // Don't flip — next time we still want to try the originally intended bracket first.
+      source = other;
+      picked = otherQ.slice(0, 4);
+      if (other === 'winners') winnersQueue = winnersQueue.slice(4);
+      else losersQueue = losersQueue.slice(4);
+    } else {
+      return null;
+    }
   }
 
   const ordered = splitFromPartners(shuffle(picked), state.players);
@@ -182,7 +209,7 @@ function tryFillCourt(state, court) {
     source,
     startTime: Date.now(),
   };
-  return { court: newCourt, waiting, winnersQueue, losersQueue };
+  return { court: newCourt, waiting, winnersQueue, losersQueue, nextBracket };
 }
 
 function autoFillCourts(state) {
@@ -193,12 +220,13 @@ function autoFillCourts(state) {
   let waiting = state.waiting;
   let winnersQueue = state.winnersQueue;
   let losersQueue = state.losersQueue;
+  let nextBracket = state.nextBracket || 'winners';
   let filledAny = true;
   while (filledAny) {
     filledAny = false;
     for (let i = 0; i < courts.length; i++) {
       const result = tryFillCourt(
-        { ...state, courts, waiting, winnersQueue, losersQueue },
+        { ...state, courts, waiting, winnersQueue, losersQueue, nextBracket },
         courts[i]
       );
       if (result) {
@@ -206,12 +234,13 @@ function autoFillCourts(state) {
         waiting = result.waiting;
         winnersQueue = result.winnersQueue;
         losersQueue = result.losersQueue;
+        nextBracket = result.nextBracket;
         filledAny = true;
       }
     }
     // After filling, redistribute any new stragglers and try again.
     if (!filledAny && waiting.length > 0 && waiting.length < 4) {
-      const tmp = distributeWaitingToBrackets({ ...state, waiting, winnersQueue, losersQueue });
+      const tmp = distributeWaitingToBrackets({ ...state, waiting, winnersQueue, losersQueue, nextBracket });
       if (tmp.waiting.length < waiting.length) {
         waiting = tmp.waiting;
         winnersQueue = tmp.winnersQueue;
@@ -220,7 +249,7 @@ function autoFillCourts(state) {
       }
     }
   }
-  return { ...state, courts, waiting, winnersQueue, losersQueue };
+  return { ...state, courts, waiting, winnersQueue, losersQueue, nextBracket };
 }
 
 // If we drop below the bracket-mode threshold, fold W/L queues back into waiting.
@@ -271,6 +300,7 @@ function reducer(state, action) {
         consecutiveWins: 0,
         bestStreak: 0,
         lastPartner: null,
+        resting: false,
       };
       const next = {
         ...state,
@@ -302,6 +332,7 @@ function reducer(state, action) {
           consecutiveWins: 0,
           bestStreak: 0,
           lastPartner: null,
+          resting: false,
         });
       }
       if (fresh.length === 0) return state;
@@ -344,6 +375,49 @@ function reducer(state, action) {
       return autoFillCourts(next);
     }
 
+    case 'TOGGLE_PLAYER_REST': {
+      const id = action.id;
+      const player = state.players.find((p) => p.id === id);
+      if (!player) return state;
+      const becomingResting = !player.resting;
+      let next = {
+        ...state,
+        undoStack: snapshotState(state, becomingResting ? `rest ${player.name}` : `resume ${player.name}`),
+      };
+      next.players = next.players.map((p) =>
+        p.id === id ? { ...p, resting: becomingResting, consecutiveWins: becomingResting ? 0 : p.consecutiveWins } : p
+      );
+      if (becomingResting) {
+        // If on a court, abandon the game and return the other 3 to the front of waiting.
+        next.courts = next.courts.map((court) => {
+          if (court.teamA && (court.teamA.includes(id) || court.teamB.includes(id))) {
+            const others = [...court.teamA, ...court.teamB].filter((pid) => pid !== id);
+            others.forEach((pid) => {
+              if (
+                !next.waiting.includes(pid) &&
+                !next.winnersQueue.includes(pid) &&
+                !next.losersQueue.includes(pid)
+              ) {
+                next.waiting = [pid, ...next.waiting];
+              }
+            });
+            return { ...court, teamA: null, teamB: null, source: null, startTime: null };
+          }
+          return court;
+        });
+        next.waiting = next.waiting.filter((pid) => pid !== id);
+        next.winnersQueue = next.winnersQueue.filter((pid) => pid !== id);
+        next.losersQueue = next.losersQueue.filter((pid) => pid !== id);
+        next.toast = { msg: `${player.name} is resting`, ts: Date.now() };
+      } else {
+        // Resuming — add to back of waiting; distribution/auto-fill will sort it out.
+        next.waiting = [...next.waiting, id];
+        next.toast = { msg: `${player.name} is back in the queue`, ts: Date.now() };
+      }
+      next = ensureModeConsistency(next);
+      return autoFillCourts(next);
+    }
+
     case 'CLEAR_ALL': {
       const fresh = initialState();
       return {
@@ -371,14 +445,16 @@ function reducer(state, action) {
       return { ...state, sessionDate: action.value };
 
     case 'START_GAMES': {
-      if (state.players.length < 4) {
-        return { ...state, toast: { msg: 'Need at least 4 players to start', ts: Date.now() } };
+      const activePlayers = state.players.filter((p) => !p.resting);
+      if (activePlayers.length < 4) {
+        return { ...state, toast: { msg: 'Need at least 4 active players to start', ts: Date.now() } };
       }
       let next = {
         ...state,
         undoStack: snapshotState(state, 'start games'),
         started: true,
         waiting: shuffle(state.waiting),
+        nextBracket: 'winners',
       };
       next.courts = setupCourts(next.courts, next.numCourts);
       return autoFillCourts(next);
@@ -388,9 +464,10 @@ function reducer(state, action) {
       let next = {
         ...state,
         undoStack: snapshotState(state, 'reset round'),
-        waiting: state.players.map((p) => p.id),
+        waiting: state.players.filter((p) => !p.resting).map((p) => p.id),
         winnersQueue: [],
         losersQueue: [],
+        nextBracket: 'winners',
         courts: state.courts.map((c) => ({
           ...c,
           teamA: null,

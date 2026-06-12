@@ -15,15 +15,16 @@ function QueueList({ ids, players }) {
 }
 
 export default function QueuesCard() {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const single = isSingleLineMode(state.players, state.numCourts);
 
-  // Determine which bracket is up next to fill a court.
+  // In bracket mode, always show which bracket is up next so the user can see
+  // the winners <-> losers alternation regardless of whether initial waiting is also filling.
   const nextBracket = !single && state.started
-    ? (state.waiting.length >= 4
-        ? null // initial pool still filling courts
-        : getNextBracket(state.winnersQueue.length, state.losersQueue.length))
+    ? getNextBracket(state.winnersQueue.length, state.losersQueue.length, state.nextBracket)
     : null;
+
+  const restingPlayers = state.players.filter((p) => p.resting);
 
   return (
     <div className="card">
@@ -54,6 +55,28 @@ export default function QueuesCard() {
           <QueueList ids={state.waiting} players={state.players} />
         </div>
       </div>
+
+      {restingPlayers.length > 0 && (
+        <div className="resting-section">
+          <h3 className="resting-title">
+            Resting <span className="count">{restingPlayers.length}</span>
+          </h3>
+          <ul className="resting-list">
+            {restingPlayers.map((p) => (
+              <li key={p.id} className="resting-row">
+                <span>💤 {p.name}</span>
+                <button
+                  className="btn-ghost resting-resume"
+                  onClick={() => dispatch({ type: 'TOGGLE_PLAYER_REST', id: p.id })}
+                  title="Resume playing"
+                >
+                  Resume
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
